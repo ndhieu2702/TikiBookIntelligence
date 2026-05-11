@@ -901,42 +901,8 @@ def make_bar_chart(counts: pd.Series):
     fig.update_traces(
         textposition="outside",
         marker_line_width=0,
-        textfont=dict(
-            color="#0F172A",
-            size=15,
-            family="Arial",
-        ),
+        textfont=dict(color="#0F172A", size=14),
         cliponaxis=False,
-    )
-
-    fig.update_layout(
-        template="plotly_white",
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
-        font=dict(
-            color="#0F172A",
-            family="Arial",
-            size=14,
-        ),
-        height=420,
-        margin=dict(l=55, r=25, t=35, b=70),
-        showlegend=False,
-        xaxis=dict(
-            title="Nhãn sản phẩm",
-            titlefont=dict(color="#0F172A", size=14),
-            tickfont=dict(color="#0F172A", size=13),
-            showgrid=False,
-            linecolor="#0F172A",
-            linewidth=1,
-        ),
-        yaxis=dict(
-            title="Số lượng",
-            titlefont=dict(color="#0F172A", size=14),
-            tickfont=dict(color="#0F172A", size=13),
-            gridcolor="#DCE6F2",
-            linecolor="#0F172A",
-            linewidth=1,
-        ),
     )
 
     return fig
@@ -946,30 +912,12 @@ def make_donut_chart(counts: pd.Series):
     chart_df = counts.reset_index()
     chart_df.columns = ["Nhãn", "Số lượng"]
 
-    colors = ["#0B63F6", "#EF4444", "#F59E0B", "#8B5CF6", "#10B981"]
-
     fig = px.pie(
         chart_df,
         names="Nhãn",
         values="Số lượng",
         hole=0.48,
-        color_discrete_sequence=colors,
-    )
-
-    fig.update_layout(
-        template="plotly_white",
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
-        font=dict(color="#0F172A", family="Arial", size=14),
-        height=390,
-        margin=dict(l=20, r=20, t=20, b=20),
-        legend=dict(
-            orientation="v",
-            yanchor="middle",
-            y=0.5,
-            xanchor="left",
-            x=1.02,
-        ),
+        color_discrete_sequence=["#0B63F6", "#EF4444", "#F59E0B", "#8B5CF6", "#10B981"],
     )
 
     return fig
