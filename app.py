@@ -628,6 +628,128 @@ section[data-testid="stSidebar"] > div:first-child {
         grid-template-columns: 1fr;
     }
 }
+/* =============== FIX BUTTON DỰ ĐOÁN =============== */
+
+div[data-testid="stForm"] .stButton > button,
+.stButton > button {
+    background: linear-gradient(135deg, #0B63F6, #2563EB) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 14px !important;
+    padding: 0.75rem 1.3rem !important;
+    font-weight: 850 !important;
+    font-size: 15px !important;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25) !important;
+    transition: all 0.2s ease !important;
+}
+
+/* hover không bị đen */
+div[data-testid="stForm"] .stButton > button:hover,
+.stButton > button:hover {
+    background: linear-gradient(135deg, #0755D5, #1D4ED8) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.32) !important;
+}
+
+/* active/focus cũng không bị đen */
+div[data-testid="stForm"] .stButton > button:active,
+div[data-testid="stForm"] .stButton > button:focus,
+.stButton > button:active,
+.stButton > button:focus {
+    background: linear-gradient(135deg, #064BC0, #1E40AF) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    outline: 3px solid rgba(37, 99, 235, 0.25) !important;
+}
+
+/* chữ bên trong button */
+div[data-testid="stForm"] .stButton > button p,
+.stButton > button p {
+    color: #FFFFFF !important;
+    font-weight: 850 !important;
+}
+
+
+/* =============== FORCE FIX SUBMIT BUTTON STREAMLIT CLOUD =============== */
+/* Target đúng nút st.form_submit_button */
+div[data-testid="stFormSubmitButton"] button,
+div[data-testid="stFormSubmitButton"] button[kind="primary"],
+div[data-testid="stFormSubmitButton"] button[kind="secondary"],
+.stButton button,
+.stButton button[kind="primary"],
+.stButton button[kind="secondary"],
+button[data-testid="baseButton-primary"],
+button[data-testid="baseButton-secondary"] {
+    background: linear-gradient(135deg, #0B63F6, #2563EB) !important;
+    background-color: #0B63F6 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    border: 0 !important;
+    border-radius: 14px !important;
+    min-height: 48px !important;
+    padding: 0.75rem 1.45rem !important;
+    font-size: 15px !important;
+    font-weight: 850 !important;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28) !important;
+    opacity: 1 !important;
+}
+
+/* Ép toàn bộ thẻ con bên trong button thành chữ trắng */
+div[data-testid="stFormSubmitButton"] button *,
+div[data-testid="stFormSubmitButton"] button p,
+div[data-testid="stFormSubmitButton"] button span,
+div[data-testid="stFormSubmitButton"] button div,
+.stButton button *,
+.stButton button p,
+.stButton button span,
+.stButton button div,
+button[data-testid="baseButton-primary"] *,
+button[data-testid="baseButton-secondary"] * {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+    opacity: 1 !important;
+    font-weight: 850 !important;
+}
+
+/* Hover / focus / active không bị chuyển thành nền đen chữ xám */
+div[data-testid="stFormSubmitButton"] button:hover,
+div[data-testid="stFormSubmitButton"] button:focus,
+div[data-testid="stFormSubmitButton"] button:active,
+.stButton button:hover,
+.stButton button:focus,
+.stButton button:active,
+button[data-testid="baseButton-primary"]:hover,
+button[data-testid="baseButton-primary"]:focus,
+button[data-testid="baseButton-primary"]:active,
+button[data-testid="baseButton-secondary"]:hover,
+button[data-testid="baseButton-secondary"]:focus,
+button[data-testid="baseButton-secondary"]:active {
+    background: linear-gradient(135deg, #0755D5, #1D4ED8) !important;
+    background-color: #0755D5 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    border: 0 !important;
+    outline: 3px solid rgba(37, 99, 235, 0.22) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.34) !important;
+}
+
+/* Hover vẫn ép chữ trắng */
+div[data-testid="stFormSubmitButton"] button:hover *,
+div[data-testid="stFormSubmitButton"] button:focus *,
+div[data-testid="stFormSubmitButton"] button:active *,
+.stButton button:hover *,
+.stButton button:focus *,
+.stButton button:active * {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+    opacity: 1 !important;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -1356,7 +1478,7 @@ elif page == "🔎 Dự đoán sản phẩm":
                     unsafe_allow_html=True,
                 )
 
-            submitted = st.form_submit_button("Dự đoán nhãn sản phẩm")
+            submitted = st.form_submit_button("Dự đoán nhãn sản phẩm", type="primary")
 
         if submitted:
             feature_cols = [
