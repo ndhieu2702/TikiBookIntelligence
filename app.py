@@ -672,82 +672,80 @@ div[data-testid="stForm"] .stButton > button p,
 }
 
 
-/* =============== FORCE FIX SUBMIT BUTTON STREAMLIT CLOUD =============== */
-/* Target đúng nút st.form_submit_button */
+/* =============== FORCE FIX ALL STREAMLIT FORM BUTTONS =============== */
+.stFormSubmitButton > button,
+.stFormSubmitButton button,
+div[data-testid="stFormSubmitButton"] > button,
 div[data-testid="stFormSubmitButton"] button,
-div[data-testid="stFormSubmitButton"] button[kind="primary"],
-div[data-testid="stFormSubmitButton"] button[kind="secondary"],
+.stButton > button,
 .stButton button,
-.stButton button[kind="primary"],
-.stButton button[kind="secondary"],
+button[kind="primary"],
 button[data-testid="baseButton-primary"],
 button[data-testid="baseButton-secondary"] {
     background: linear-gradient(135deg, #0B63F6, #2563EB) !important;
-    background-color: #0B63F6 !important;
     color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    border: 0 !important;
+    border: none !important;
     border-radius: 14px !important;
     min-height: 48px !important;
-    padding: 0.75rem 1.45rem !important;
+    padding: 0.75rem 1.4rem !important;
     font-size: 15px !important;
     font-weight: 850 !important;
     box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28) !important;
-    opacity: 1 !important;
+    transition: all 0.2s ease !important;
 }
 
-/* Ép toàn bộ thẻ con bên trong button thành chữ trắng */
+.stFormSubmitButton > button *,
+.stFormSubmitButton button *,
+div[data-testid="stFormSubmitButton"] > button *,
 div[data-testid="stFormSubmitButton"] button *,
-div[data-testid="stFormSubmitButton"] button p,
-div[data-testid="stFormSubmitButton"] button span,
-div[data-testid="stFormSubmitButton"] button div,
+.stButton > button *,
 .stButton button *,
-.stButton button p,
-.stButton button span,
-.stButton button div,
+button[kind="primary"] *,
 button[data-testid="baseButton-primary"] *,
 button[data-testid="baseButton-secondary"] * {
     color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
     fill: #FFFFFF !important;
-    opacity: 1 !important;
     font-weight: 850 !important;
 }
 
-/* Hover / focus / active không bị chuyển thành nền đen chữ xám */
+.stFormSubmitButton > button:hover,
+.stFormSubmitButton button:hover,
+div[data-testid="stFormSubmitButton"] > button:hover,
 div[data-testid="stFormSubmitButton"] button:hover,
-div[data-testid="stFormSubmitButton"] button:focus,
-div[data-testid="stFormSubmitButton"] button:active,
+.stButton > button:hover,
 .stButton button:hover,
-.stButton button:focus,
-.stButton button:active,
+button[kind="primary"]:hover,
 button[data-testid="baseButton-primary"]:hover,
-button[data-testid="baseButton-primary"]:focus,
-button[data-testid="baseButton-primary"]:active,
-button[data-testid="baseButton-secondary"]:hover,
-button[data-testid="baseButton-secondary"]:focus,
-button[data-testid="baseButton-secondary"]:active {
+button[data-testid="baseButton-secondary"]:hover {
     background: linear-gradient(135deg, #0755D5, #1D4ED8) !important;
-    background-color: #0755D5 !important;
     color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-    border: 0 !important;
-    outline: 3px solid rgba(37, 99, 235, 0.22) !important;
+    border: none !important;
     transform: translateY(-1px);
     box-shadow: 0 10px 22px rgba(37, 99, 235, 0.34) !important;
 }
 
-/* Hover vẫn ép chữ trắng */
+.stFormSubmitButton > button:hover *,
+.stFormSubmitButton button:hover *,
+div[data-testid="stFormSubmitButton"] > button:hover *,
 div[data-testid="stFormSubmitButton"] button:hover *,
-div[data-testid="stFormSubmitButton"] button:focus *,
-div[data-testid="stFormSubmitButton"] button:active *,
+.stButton > button:hover *,
 .stButton button:hover *,
-.stButton button:focus *,
-.stButton button:active * {
+button[kind="primary"]:hover *,
+button[data-testid="baseButton-primary"]:hover *,
+button[data-testid="baseButton-secondary"]:hover * {
     color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
     fill: #FFFFFF !important;
-    opacity: 1 !important;
+}
+
+.stFormSubmitButton > button:focus,
+.stFormSubmitButton > button:active,
+div[data-testid="stFormSubmitButton"] button:focus,
+div[data-testid="stFormSubmitButton"] button:active,
+.stButton button:focus,
+.stButton button:active {
+    background: linear-gradient(135deg, #064BC0, #1E40AF) !important;
+    color: #FFFFFF !important;
+    outline: 3px solid rgba(37, 99, 235, 0.22) !important;
 }
 
 </style>
@@ -781,11 +779,61 @@ def load_classification_report() -> pd.DataFrame:
     return pd.read_csv(CLASSIFICATION_REPORT_PATH)
 
 
+
+
+def patch_sklearn_tree_model(model):
+    """Fix sklearn pickle compatibility for tree models on Streamlit Cloud.
+
+    Some models were trained with a different scikit-learn version. On newer
+    versions, tree estimators may expect the attribute `monotonic_cst`.
+    Old pickled DecisionTree estimators may not have it, causing prediction to fail.
+    """
+    def patch_one(est):
+        try:
+            cls_name = est.__class__.__name__
+            if cls_name in {
+                "DecisionTreeClassifier",
+                "DecisionTreeRegressor",
+                "ExtraTreeClassifier",
+                "ExtraTreeRegressor",
+            }:
+                if not hasattr(est, "monotonic_cst"):
+                    est.monotonic_cst = None
+        except Exception:
+            pass
+
+    if model is None:
+        return model
+
+    patch_one(model)
+
+    # RandomForest / ExtraTrees store many decision trees in estimators_
+    try:
+        estimators = getattr(model, "estimators_", [])
+        for est in estimators:
+            if isinstance(est, (list, tuple)):
+                for sub_est in est:
+                    patch_one(sub_est)
+            else:
+                patch_one(est)
+    except Exception:
+        pass
+
+    # Some wrappers keep the real estimator here
+    try:
+        patch_one(getattr(model, "estimator_", None))
+    except Exception:
+        pass
+
+    return model
+
+
 @st.cache_resource
 def load_model_and_encoder():
     if not MODEL_PATH.exists() or not ENCODER_PATH.exists():
         return None, None
     model = joblib.load(MODEL_PATH)
+    model = patch_sklearn_tree_model(model)
     encoder = joblib.load(ENCODER_PATH)
     return model, encoder
 
@@ -1478,7 +1526,11 @@ elif page == "🔎 Dự đoán sản phẩm":
                     unsafe_allow_html=True,
                 )
 
-            submitted = st.form_submit_button("Dự đoán nhãn sản phẩm", type="primary")
+            submitted = st.form_submit_button(
+                "Dự đoán nhãn sản phẩm",
+                type="primary",
+                use_container_width=False,
+            )
 
         if submitted:
             feature_cols = [
@@ -1536,6 +1588,7 @@ elif page == "🔎 Dự đoán sản phẩm":
                 )
             except Exception as e:
                 st.error(f"Lỗi khi dự đoán: {e}")
+                st.info("Nếu lỗi liên quan đến sklearn/monotonic_cst, hãy chạy lại train_product_classifier.py rồi push lại file models/product_performance_model.pkl, hoặc dùng file app.py đã được vá tương thích này.")
 
 
 elif page == "💡 Gợi ý cải thiện":
