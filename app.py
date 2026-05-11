@@ -896,6 +896,7 @@ def make_bar_chart(counts: pd.Series):
         y="Số lượng",
         text="Số lượng",
         color_discrete_sequence=["#0B63F6"],
+        template="plotly_white",
     )
 
     fig.update_traces(
@@ -905,8 +906,32 @@ def make_bar_chart(counts: pd.Series):
         cliponaxis=False,
     )
 
-    return fig
+    fig.update_layout(
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font_color="#0F172A",
+        height=420,
+        margin=dict(l=50, r=20, t=35, b=70),
+        showlegend=False,
+    )
 
+    fig.update_xaxes(
+        title_text="Nhãn sản phẩm",
+        tickfont=dict(color="#0F172A", size=12),
+        title_font=dict(color="#0F172A", size=13),
+        showgrid=False,
+        linecolor="#0F172A",
+    )
+
+    fig.update_yaxes(
+        title_text="Số lượng",
+        tickfont=dict(color="#0F172A", size=12),
+        title_font=dict(color="#0F172A", size=13),
+        gridcolor="#E2E8F0",
+        linecolor="#0F172A",
+    )
+
+    return fig
 
 def make_donut_chart(counts: pd.Series):
     chart_df = counts.reset_index()
@@ -918,6 +943,15 @@ def make_donut_chart(counts: pd.Series):
         values="Số lượng",
         hole=0.48,
         color_discrete_sequence=["#0B63F6", "#EF4444", "#F59E0B", "#8B5CF6", "#10B981"],
+        template="plotly_white",
+    )
+
+    fig.update_layout(
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font_color="#0F172A",
+        height=390,
+        margin=dict(l=20, r=20, t=20, b=20),
     )
 
     return fig
