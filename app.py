@@ -963,7 +963,13 @@ def make_donut_chart(counts: pd.Series):
         font=dict(color="#0F172A", family="Arial", size=14),
         height=390,
         margin=dict(l=20, r=20, t=20, b=20),
-        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.02),
+        legend=dict(
+            orientation="v",
+            yanchor="middle",
+            y=0.5,
+            xanchor="left",
+            x=1.02,
+        ),
     )
 
     return fig
