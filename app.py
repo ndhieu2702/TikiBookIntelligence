@@ -1,9 +1,11 @@
 ﻿import html
+import re
 from pathlib import Path
 
 import joblib
 import pandas as pd
 import plotly.express as px
+import requests
 import streamlit as st
 
 
@@ -759,38 +761,55 @@ div[data-testid="stFormSubmitButton"] button:active,
 # DATA LOADING
 # ============================================================
 
-def get_file_mtime(path: Path):
-    return path.stat().st_mtime if path.exists() else 0
+def file_mtime(path: Path) -> float:
+    """Return file modified time so Streamlit cache refreshes when CSV/model changes."""
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
 
 
-@st.cache_data
-def load_products(file_mtime) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_products(_mtime: float) -> pd.DataFrame:
+    """Load labeled products. _mtime forces cache invalidation when file changes."""
     if not DATA_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(DATA_PATH)
 
 
-@st.cache_data
-def load_model_comparison(file_mtime) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_model_comparison(_mtime: float) -> pd.DataFrame:
     if not MODEL_COMPARISON_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(MODEL_COMPARISON_PATH)
 
 
-@st.cache_data
-def load_classification_report(file_mtime) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_classification_report(_mtime: float) -> pd.DataFrame:
     if not CLASSIFICATION_REPORT_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(CLASSIFICATION_REPORT_PATH)
 
 
-def get_total_rows(fallback_df):
+@st.cache_data(show_spinner=False)
+def load_review_stats(path_str: str, _mtime: float) -> tuple[int, int]:
+    """Read raw crawl CSV stats without writing or mutating data."""
+    path = Path(path_str)
+    if not path.exists():
+        return 0, 0
+
     try:
-        if REVIEWS_PATH.exists():
-            return len(pd.read_csv(REVIEWS_PATH))
+        reviews_df = pd.read_csv(path)
     except Exception:
-        pass
-    return len(fallback_df)
+        return 0, 0
+
+    total_review_rows = len(reviews_df)
+    unique_review_products = (
+        reviews_df["product_id"].nunique()
+        if "product_id" in reviews_df.columns
+        else 0
+    )
+    return total_review_rows, int(unique_review_products)
 
 
 
@@ -842,8 +861,9 @@ def patch_sklearn_tree_model(model):
     return model
 
 
-@st.cache_resource
-def load_model_and_encoder(model_mtime, encoder_mtime):
+@st.cache_resource(show_spinner=False)
+def load_model_and_encoder(_model_mtime: float, _encoder_mtime: float):
+    """Load model/encoder. mtimes force refresh after retraining."""
     if not MODEL_PATH.exists() or not ENCODER_PATH.exists():
         return None, None
     model = joblib.load(MODEL_PATH)
@@ -1195,6 +1215,240 @@ def show_image(path):
         st.image(str(path), use_container_width=True)
 
 
+TIKI_PRODUCT_API = "https://tiki.vn/api/v2/products/{product_id}"
+TIKI_REVIEW_API = "https://tiki.vn/api/v2/reviews"
+TIKI_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://tiki.vn/",
+}
+MODEL_FEATURE_COLUMNS = [
+    "price",
+    "rating",
+    "review_count",
+    "sold_count",
+    "comment_count",
+    "avg_comment_rating",
+    "positive_ratio",
+    "neutral_ratio",
+    "negative_ratio",
+    "estimated_revenue",
+]
+
+
+def extract_product_id(url_or_text):
+    text = str(url_or_text or "").strip()
+    if not text:
+        return None
+
+    for pattern in (r"-p(\d+)\.html", r"/p/(\d+)", r"(\d+)"):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def parse_sold_count(value):
+    if value is None:
+        return 0
+
+    if isinstance(value, dict):
+        raw_value = value.get("value")
+        if raw_value not in (None, ""):
+            return parse_sold_count(raw_value)
+        return parse_sold_count(value.get("text"))
+
+    try:
+        if pd.isna(value):
+            return 0
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, bool):
+        return int(value)
+
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    text = str(value).strip().lower()
+    if not text:
+        return 0
+
+    match = re.search(r"(\d+(?:[.,]\d+)?)\s*([km])?", text)
+    if not match:
+        return 0
+
+    number_text = match.group(1)
+    suffix = match.group(2) or ""
+
+    if suffix in {"k", "m"}:
+        number = float(number_text.replace(",", "."))
+        multiplier = 1000 if suffix == "k" else 1_000_000
+        return int(number * multiplier)
+
+    digits = re.sub(r"\D", "", number_text)
+    return int(digits) if digits else 0
+
+
+def extract_sold_count(product):
+    for key in ("quantity_sold", "all_time_quantity_sold", "sold_count", "order_count"):
+        value = product.get(key)
+        if value in (None, "", {}):
+            continue
+        return parse_sold_count(value)
+
+    quantity_sold = product.get("quantity_sold")
+    if isinstance(quantity_sold, dict):
+        value = quantity_sold.get("value")
+        if value not in (None, ""):
+            return parse_sold_count(value)
+        text = quantity_sold.get("text")
+        if text not in (None, ""):
+            return parse_sold_count(text)
+
+    return parse_sold_count(product.get("sold"))
+
+
+def fetch_tiki_product(product_id):
+    try:
+        response = requests.get(
+            TIKI_PRODUCT_API.format(product_id=product_id),
+            headers=TIKI_HEADERS,
+            timeout=12,
+        )
+    except requests.RequestException:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    try:
+        product = response.json()
+    except ValueError:
+        return None
+
+    return product if isinstance(product, dict) else None
+
+
+def fetch_tiki_reviews(product_id, limit=20):
+    params = {
+        "product_id": product_id,
+        "limit": limit,
+        "page": 1,
+        "include": "comments,contribute_info,attribute_vote_summary",
+        "sort": "score|desc,id|desc,stars|all",
+    }
+
+    try:
+        response = requests.get(TIKI_REVIEW_API, headers=TIKI_HEADERS, params=params, timeout=12)
+    except requests.RequestException:
+        return []
+
+    if response.status_code != 200:
+        return []
+
+    try:
+        data = response.json()
+    except ValueError:
+        return []
+
+    reviews = data.get("data", [])
+    return reviews if isinstance(reviews, list) else []
+
+
+def _to_float(value, default=0):
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def analyze_reviews(reviews):
+    if not reviews:
+        return {
+            "comment_count": 0,
+            "avg_comment_rating": 0,
+            "positive_ratio": 0,
+            "neutral_ratio": 0,
+            "negative_ratio": 0,
+        }
+
+    ratings = []
+    comment_count = 0
+
+    for review in reviews:
+        content = str(review.get("content") or "").strip()
+        title = str(review.get("title") or "").strip()
+        if content or title:
+            comment_count += 1
+
+        rating = _to_float(review.get("rating"), None)
+        if rating is not None:
+            ratings.append(rating)
+
+    if not ratings:
+        return {
+            "comment_count": comment_count,
+            "avg_comment_rating": 0,
+            "positive_ratio": 0,
+            "neutral_ratio": 0,
+            "negative_ratio": 0,
+        }
+
+    total = len(ratings)
+    positive_count = sum(1 for rating in ratings if rating >= 4)
+    neutral_count = sum(1 for rating in ratings if rating == 3)
+    negative_count = sum(1 for rating in ratings if rating <= 2)
+
+    return {
+        "comment_count": comment_count,
+        "avg_comment_rating": sum(ratings) / total,
+        "positive_ratio": positive_count / total,
+        "neutral_ratio": neutral_count / total,
+        "negative_ratio": negative_count / total,
+    }
+
+
+def build_features_from_product(product, reviews):
+    price = _to_float(product.get("price") or product.get("list_price") or 0, 0)
+    rating = _to_float(product.get("rating_average") or product.get("rating") or 0, 0)
+    review_count = int(_to_float(product.get("review_count") or 0, 0))
+    sold_count = extract_sold_count(product)
+    review_stats = analyze_reviews(reviews)
+    estimated_revenue = price * sold_count
+
+    feature_values = {
+        "price": price,
+        "rating": rating,
+        "review_count": review_count,
+        "sold_count": sold_count,
+        "comment_count": review_stats["comment_count"],
+        "avg_comment_rating": review_stats["avg_comment_rating"],
+        "positive_ratio": review_stats["positive_ratio"],
+        "neutral_ratio": review_stats["neutral_ratio"],
+        "negative_ratio": review_stats["negative_ratio"],
+        "estimated_revenue": estimated_revenue,
+    }
+
+    return pd.DataFrame([[feature_values[col] for col in MODEL_FEATURE_COLUMNS]], columns=MODEL_FEATURE_COLUMNS)
+
+
+def build_tiki_product_url(product, product_id):
+    url_path = product.get("url_path")
+    if url_path:
+        url_path = str(url_path).strip()
+        if url_path.startswith("http"):
+            return url_path
+        return f"https://tiki.vn/{url_path.lstrip('/')}"
+    return f"https://tiki.vn/p/{product_id}"
+
+
 # ============================================================
 # SIDEBAR
 # ============================================================
@@ -1230,14 +1484,19 @@ page = st.sidebar.radio(
 # LOAD DATA
 # ============================================================
 
-df = load_products(get_file_mtime(DATA_PATH))
-model_df = load_model_comparison(get_file_mtime(MODEL_COMPARISON_PATH))
-report_df = load_classification_report(get_file_mtime(CLASSIFICATION_REPORT_PATH))
-total_rows = get_total_rows(df)
+df = load_products(file_mtime(DATA_PATH))
+model_df = load_model_comparison(file_mtime(MODEL_COMPARISON_PATH))
+report_df = load_classification_report(file_mtime(CLASSIFICATION_REPORT_PATH))
+total_review_rows, unique_review_products = load_review_stats(
+    str(REVIEWS_PATH),
+    file_mtime(REVIEWS_PATH),
+)
+total_rows = total_review_rows if total_review_rows > 0 else len(df)
 
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Debug sản phẩm: {len(df):,}")
-st.sidebar.caption(f"Debug dòng crawl: {total_rows:,}")
+st.sidebar.caption(f"Debug dòng reviews: {total_rows:,}")
+st.sidebar.caption(f"Debug sản phẩm labeled: {len(df):,}")
+st.sidebar.caption(f"Debug product_id reviews: {unique_review_products:,}")
 
 if df.empty:
     page_header(
@@ -1279,7 +1538,7 @@ if page == "🏠 Tổng quan":
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        metric_card("🗃️", "Tổng dòng dữ liệu", format_number(total_rows), "Số dòng đánh giá hiện có")
+        metric_card("🗃️", "Tổng dòng dữ liệu crawl", format_number(total_rows), "Số dòng reviews trong file crawl")
 
     with c2:
         metric_card("📦", "Tổng sản phẩm", format_number(total_products), "Sản phẩm khác nhau")
@@ -1332,23 +1591,24 @@ elif page == "🗄️ Dữ liệu sản phẩm":
     with c3:
         metric_card("📭", "Không bình luận", format_number(no_comment_count), "Sản phẩm chưa có comment")
 
-    left_filter, right_filter = st.columns([2, 1])
+    search = st.text_input(
+        "Tìm kiếm tên sách",
+        placeholder="Nhập tên sách cần tìm..."
+    )
 
-    with left_filter:
-        search = st.text_input("Tìm kiếm tên sách", placeholder="Nhập tên sách cần tìm...")
-
-    with right_filter:
-        selected_label = st.selectbox(
-            "Chọn nhãn sản phẩm",
-            [
-                "Tất cả",
-                "Best Seller",
-                "High Potential",
-                "Premium / Niche Quality",
-                "Normal",
-                "Needs Improvement",
-            ],
-        )
+    selected_label = st.radio(
+        "Chọn nhãn sản phẩm",
+        [
+            "Tất cả",
+            "Best Seller",
+            "High Potential",
+            "Premium / Niche Quality",
+            "Normal",
+            "Needs Improvement",
+        ],
+        horizontal=True,
+        key="product_label_filter",
+    )
 
     show_df = df.copy()
     if search and "product_name" in show_df.columns:
@@ -1359,7 +1619,10 @@ elif page == "🗄️ Dữ liệu sản phẩm":
     if selected_label != "Tất cả" and "product_label" in show_df.columns:
         show_df = show_df[show_df["product_label"] == selected_label]
 
-    section_header("📋 Danh sách sản phẩm", f"Đang hiển thị {len(show_df):,} sản phẩm phù hợp.")
+    section_header(
+        "📋 Danh sách sản phẩm",
+        f"Đang hiển thị {len(show_df):,} sản phẩm phù hợp. Bảng bên dưới hiển thị tối đa 50 dòng đầu tiên."
+    )
     render_light_table(prepare_display_df(show_df), max_rows=50)
 
 
@@ -1524,111 +1787,106 @@ elif page == "📊 Đánh giá mô hình":
 
 elif page == "🔎 Dự đoán sản phẩm":
     page_header(
-        "Dự đoán sản phẩm",
-        "Nhập thông tin sản phẩm để dự đoán nhãn hiệu quả bằng mô hình đã huấn luyện.",
+        "Dự đoán sản phẩm từ link Tiki",
+        "Dán link sản phẩm Tiki để hệ thống tự lấy dữ liệu public, tạo feature và dự đoán nhãn hiệu quả.",
     )
 
-    model, encoder = load_model_and_encoder(
-        get_file_mtime(MODEL_PATH),
-        get_file_mtime(ENCODER_PATH),
-    )
+    model, encoder = load_model_and_encoder(file_mtime(MODEL_PATH), file_mtime(ENCODER_PATH))
 
     if model is None or encoder is None:
         st.warning("Chưa tìm thấy model. Hãy chạy: python train_product_classifier.py")
     else:
-        section_header("📝 Nhập thông tin sản phẩm")
+        tiki_link = st.text_input(
+            "Nhập link sản phẩm Tiki",
+            placeholder="Dán link sản phẩm Tiki, ví dụ: https://tiki.vn/...-p316018.html",
+        )
 
-        with st.form("predict_form"):
-            left, right = st.columns(2)
-
-            with left:
-                price = st.number_input("Giá bán (VND)", min_value=0, value=100000, step=1000)
-                rating = st.number_input("Điểm đánh giá", min_value=0.0, max_value=5.0, value=4.0, step=0.1)
-                review_count = st.number_input("Số đánh giá", min_value=0, value=50, step=1)
-                sold_count = st.number_input("Lượt bán", min_value=0, value=100, step=1)
-                comment_count = st.number_input("Số bình luận", min_value=0, value=20, step=1)
-
-            with right:
-                avg_comment_rating = st.number_input(
-                    "Điểm bình luận trung bình", min_value=0.0, max_value=5.0, value=4.0, step=0.1
-                )
-                positive_ratio = st.number_input("Tỷ lệ tích cực", min_value=0.0, max_value=1.0, value=0.7, step=0.01)
-                neutral_ratio = st.number_input("Tỷ lệ trung tính", min_value=0.0, max_value=1.0, value=0.2, step=0.01)
-                negative_ratio = st.number_input("Tỷ lệ tiêu cực", min_value=0.0, max_value=1.0, value=0.1, step=0.01)
-                estimated_revenue = price * sold_count
-
-                st.markdown(
-                    f"""
-                    <div class="info-card">
-                        Doanh thu ước tính: <b>{format_vnd(estimated_revenue)}</b>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            submitted = st.form_submit_button(
-                "Dự đoán nhãn sản phẩm",
-                type="primary",
-                use_container_width=False,
-            )
+        submitted = st.button(
+            "Phân tích và dự đoán",
+            type="primary",
+            use_container_width=False,
+        )
 
         if submitted:
-            feature_cols = [
-                "price",
-                "rating",
-                "review_count",
-                "sold_count",
-                "comment_count",
-                "avg_comment_rating",
-                "positive_ratio",
-                "neutral_ratio",
-                "negative_ratio",
-                "estimated_revenue",
-            ]
+            product_id = extract_product_id(tiki_link)
+            if not product_id:
+                st.error("Không tìm thấy mã sản phẩm trong link.")
+            else:
+                with st.spinner("Đang lấy dữ liệu sản phẩm từ Tiki..."):
+                    product = fetch_tiki_product(product_id)
 
-            input_df = pd.DataFrame(
-                [[
-                    price,
-                    rating,
-                    review_count,
-                    sold_count,
-                    comment_count,
-                    avg_comment_rating,
-                    positive_ratio,
-                    neutral_ratio,
-                    negative_ratio,
-                    estimated_revenue,
-                ]],
-                columns=feature_cols,
-            )
+                if not product:
+                    st.error("Không lấy được dữ liệu sản phẩm từ Tiki.")
+                else:
+                    with st.spinner("Đang lấy đánh giá và tạo feature dự đoán..."):
+                        reviews = fetch_tiki_reviews(product_id, limit=20)
+                        input_df = build_features_from_product(product, reviews)
 
-            try:
-                pred = model.predict(input_df)[0]
-                label = encoder.inverse_transform([pred])[0]
+                    try:
+                        pred = model.predict(input_df)[0]
+                        label = encoder.inverse_transform([pred])[0]
+                    except Exception as e:
+                        st.error(f"Lỗi khi dự đoán: {e}")
+                        st.info(
+                            "Nếu lỗi liên quan đến sklearn/monotonic_cst, hãy chạy lại "
+                            "train_product_classifier.py rồi push lại file models/product_performance_model.pkl."
+                        )
+                    else:
+                        product_name = product.get("name") or "Không rõ tên sản phẩm"
+                        product_url = build_tiki_product_url(product, product_id)
+                        features = input_df.iloc[0]
+                        explanations = {
+                            "Best Seller": "Sản phẩm có khả năng bán chạy, hiệu quả cao.",
+                            "High Potential": "Sản phẩm có tiềm năng tăng trưởng tốt.",
+                            "Premium / Niche Quality": "Sản phẩm phù hợp phân khúc cao cấp hoặc ngách.",
+                            "Normal": "Sản phẩm có hiệu quả ở mức trung bình.",
+                            "Needs Improvement": "Sản phẩm cần cải thiện chỉ số bán hàng hoặc phản hồi.",
+                        }
 
-                explanations = {
-                    "Best Seller": "Sản phẩm có khả năng bán chạy, hiệu quả cao.",
-                    "High Potential": "Sản phẩm có tiềm năng tăng trưởng tốt.",
-                    "Premium / Niche Quality": "Sản phẩm phù hợp phân khúc cao cấp hoặc ngách.",
-                    "Normal": "Sản phẩm có hiệu quả ở mức trung bình.",
-                    "Needs Improvement": "Sản phẩm cần cải thiện chỉ số bán hàng hoặc phản hồi.",
-                }
+                        st.markdown(
+                            f"""
+                            <div class="page-header-card">
+                                <div class="page-title" style="font-size:30px;">✅ Kết quả dự đoán</div>
+                                <p class="page-subtitle">{safe_html(product_name)}</p>
+                                <div class="metric-value">Nhãn dự đoán: {safe_html(label)}</div>
+                                <p style="color:#475569; font-size:16px; margin-top:10px;">
+                                    {safe_html(explanations.get(label, "Không có mô tả."))}
+                                </p>
+                                <a href="{safe_html(product_url)}" target="_blank">Xem sản phẩm trên Tiki</a>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
-                st.markdown(
-                    f"""
-                    <div class="page-header-card">
-                        <div class="page-title" style="font-size:30px;">✅ Kết quả dự đoán</div>
-                        <div class="metric-value">Nhãn dự đoán: {safe_html(label)}</div>
-                        <p style="color:#475569; font-size:16px; margin-top:10px;">
-                            {safe_html(explanations.get(label, "Không có mô tả."))}
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            except Exception as e:
-                st.error(f"Lỗi khi dự đoán: {e}")
-                st.info("Nếu lỗi liên quan đến sklearn/monotonic_cst, hãy chạy lại train_product_classifier.py rồi push lại file models/product_performance_model.pkl, hoặc dùng file app.py đã được vá tương thích này.")
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            metric_card("💰", "Giá bán", format_vnd(features["price"]), "Giá từ API Tiki")
+                        with c2:
+                            metric_card("⭐", "Rating", format_float(features["rating"], 2), "Điểm đánh giá")
+                        with c3:
+                            metric_card("🏷️", "Nhãn dự đoán", label, "Kết quả từ mô hình")
+
+                        c4, c5, c6 = st.columns(3)
+                        with c4:
+                            metric_card("📝", "Số đánh giá", format_number(features["review_count"]), "review_count")
+                        with c5:
+                            metric_card("📦", "Lượt bán", format_number(features["sold_count"]), "sold_count")
+                        with c6:
+                            metric_card("💬", "Số bình luận lấy được", format_number(features["comment_count"]), "20 review đầu")
+
+                        c7, c8 = st.columns(2)
+                        with c7:
+                            metric_card(
+                                "📈",
+                                "Doanh thu ước tính",
+                                format_vnd(features["estimated_revenue"]),
+                                "Giá × lượt bán",
+                            )
+                        with c8:
+                            metric_card("🔗", "Mã sản phẩm", product_id, "Trích từ link Tiki")
+
+                        section_header("📄 Dữ liệu hệ thống lấy được")
+                        render_light_table(input_df, max_rows=1)
 
 
 elif page == "💡 Gợi ý cải thiện":
