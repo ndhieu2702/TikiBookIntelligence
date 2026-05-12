@@ -24,6 +24,7 @@ st.set_page_config(
 # ============================================================
 
 DATA_PATH = Path("data/tiki_books_labeled.csv")
+REVIEWS_PATH = Path("data/tiki_books_reviews.csv")
 MODEL_COMPARISON_PATH = Path("data/model_comparison.csv")
 CLASSIFICATION_REPORT_PATH = Path("data/classification_report.csv")
 MODEL_PATH = Path("models/product_performance_model.pkl")
@@ -758,25 +759,38 @@ div[data-testid="stFormSubmitButton"] button:active,
 # DATA LOADING
 # ============================================================
 
+def get_file_mtime(path: Path):
+    return path.stat().st_mtime if path.exists() else 0
+
+
 @st.cache_data
-def load_products() -> pd.DataFrame:
+def load_products(file_mtime) -> pd.DataFrame:
     if not DATA_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(DATA_PATH)
 
 
 @st.cache_data
-def load_model_comparison() -> pd.DataFrame:
+def load_model_comparison(file_mtime) -> pd.DataFrame:
     if not MODEL_COMPARISON_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(MODEL_COMPARISON_PATH)
 
 
 @st.cache_data
-def load_classification_report() -> pd.DataFrame:
+def load_classification_report(file_mtime) -> pd.DataFrame:
     if not CLASSIFICATION_REPORT_PATH.exists():
         return pd.DataFrame()
     return pd.read_csv(CLASSIFICATION_REPORT_PATH)
+
+
+def get_total_rows(fallback_df):
+    try:
+        if REVIEWS_PATH.exists():
+            return len(pd.read_csv(REVIEWS_PATH))
+    except Exception:
+        pass
+    return len(fallback_df)
 
 
 
@@ -829,7 +843,7 @@ def patch_sklearn_tree_model(model):
 
 
 @st.cache_resource
-def load_model_and_encoder():
+def load_model_and_encoder(model_mtime, encoder_mtime):
     if not MODEL_PATH.exists() or not ENCODER_PATH.exists():
         return None, None
     model = joblib.load(MODEL_PATH)
@@ -1216,9 +1230,14 @@ page = st.sidebar.radio(
 # LOAD DATA
 # ============================================================
 
-df = load_products()
-model_df = load_model_comparison()
-report_df = load_classification_report()
+df = load_products(get_file_mtime(DATA_PATH))
+model_df = load_model_comparison(get_file_mtime(MODEL_COMPARISON_PATH))
+report_df = load_classification_report(get_file_mtime(CLASSIFICATION_REPORT_PATH))
+total_rows = get_total_rows(df)
+
+st.sidebar.markdown("---")
+st.sidebar.caption(f"Debug sản phẩm: {len(df):,}")
+st.sidebar.caption(f"Debug dòng crawl: {total_rows:,}")
 
 if df.empty:
     page_header(
@@ -1229,7 +1248,6 @@ if df.empty:
     st.stop()
 
 counts = label_counts(df)
-total_rows = 8191
 total_products = len(df)
 total_revenue = df["estimated_revenue"].sum() if "estimated_revenue" in df.columns else 0
 best_model_name, best_acc, best_precision, best_f1 = get_best_model_info(model_df)
@@ -1314,7 +1332,23 @@ elif page == "🗄️ Dữ liệu sản phẩm":
     with c3:
         metric_card("📭", "Không bình luận", format_number(no_comment_count), "Sản phẩm chưa có comment")
 
-    search = st.text_input("Tìm kiếm tên sách", placeholder="Nhập tên sách cần tìm...")
+    left_filter, right_filter = st.columns([2, 1])
+
+    with left_filter:
+        search = st.text_input("Tìm kiếm tên sách", placeholder="Nhập tên sách cần tìm...")
+
+    with right_filter:
+        selected_label = st.selectbox(
+            "Chọn nhãn sản phẩm",
+            [
+                "Tất cả",
+                "Best Seller",
+                "High Potential",
+                "Premium / Niche Quality",
+                "Normal",
+                "Needs Improvement",
+            ],
+        )
 
     show_df = df.copy()
     if search and "product_name" in show_df.columns:
@@ -1322,7 +1356,10 @@ elif page == "🗄️ Dữ liệu sản phẩm":
             show_df["product_name"].astype(str).str.contains(search, case=False, na=False)
         ]
 
-    section_header("📋 Danh sách sản phẩm", "Hiển thị tối đa 50 sản phẩm đầu tiên.")
+    if selected_label != "Tất cả" and "product_label" in show_df.columns:
+        show_df = show_df[show_df["product_label"] == selected_label]
+
+    section_header("📋 Danh sách sản phẩm", f"Đang hiển thị {len(show_df):,} sản phẩm phù hợp.")
     render_light_table(prepare_display_df(show_df), max_rows=50)
 
 
@@ -1491,7 +1528,10 @@ elif page == "🔎 Dự đoán sản phẩm":
         "Nhập thông tin sản phẩm để dự đoán nhãn hiệu quả bằng mô hình đã huấn luyện.",
     )
 
-    model, encoder = load_model_and_encoder()
+    model, encoder = load_model_and_encoder(
+        get_file_mtime(MODEL_PATH),
+        get_file_mtime(ENCODER_PATH),
+    )
 
     if model is None or encoder is None:
         st.warning("Chưa tìm thấy model. Hãy chạy: python train_product_classifier.py")
