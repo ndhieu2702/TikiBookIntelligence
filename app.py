@@ -788,7 +788,13 @@ def load_model_comparison(_mtime: float) -> pd.DataFrame:
 def load_classification_report(_mtime: float) -> pd.DataFrame:
     if not CLASSIFICATION_REPORT_PATH.exists():
         return pd.DataFrame()
-    return pd.read_csv(CLASSIFICATION_REPORT_PATH)
+
+    df = pd.read_csv(CLASSIFICATION_REPORT_PATH)
+
+    if "Unnamed: 0" in df.columns:
+        df = df.rename(columns={"Unnamed: 0": "label"})
+
+    return df
 
 
 @st.cache_data(show_spinner=False)
@@ -932,6 +938,22 @@ def format_float(value, digits=2) -> str:
         return f"{float(value):.{digits}f}"
     except Exception:
         return "0.00"
+
+
+def get_report_value(report_df, label_name, col_candidates, default=0):
+    if report_df.empty or "label" not in report_df.columns:
+        return default
+
+    rows = report_df[report_df["label"].astype(str).str.lower() == str(label_name).lower()]
+    if rows.empty:
+        return default
+
+    row = rows.iloc[0]
+    for col in col_candidates:
+        if col in report_df.columns and pd.notna(row.get(col)):
+            return row.get(col)
+
+    return default
 
 
 def page_header(title: str, subtitle: str) -> None:
@@ -1762,6 +1784,29 @@ elif page == "📊 Đánh giá mô hình":
         "Quan sát ma trận nhầm lẫn, mức độ quan trọng đặc trưng và báo cáo phân loại.",
     )
 
+    if not report_df.empty and "label" in report_df.columns:
+        accuracy_value = get_report_value(report_df, "accuracy", ["f1-score", "F1-score"], 0)
+        macro_f1 = get_report_value(report_df, "macro avg", ["f1-score", "F1-score"], 0)
+        weighted_f1 = get_report_value(report_df, "weighted avg", ["f1-score", "F1-score"], 0)
+        total_support = get_report_value(report_df, "weighted avg", ["support", "Số mẫu"], 0)
+
+        if not total_support:
+            total_support = get_report_value(report_df, "macro avg", ["support", "Số mẫu"], 0)
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            metric_card("🧪", "Tổng mẫu test", format_number(total_support), "Số mẫu dùng đánh giá")
+
+        with c2:
+            metric_card("🎯", "Accuracy", format_float(accuracy_value, 4), "Tỷ lệ dự đoán đúng")
+
+        with c3:
+            metric_card("📊", "Macro F1-score", format_float(macro_f1, 4), "Trung bình đều các lớp")
+
+        with c4:
+            metric_card("⚖️", "Weighted F1-score", format_float(weighted_f1, 4), "Có xét số lượng từng lớp")
+
     left, right = st.columns(2, gap="large")
 
     with left:
@@ -1778,7 +1823,10 @@ elif page == "📊 Đánh giá mô hình":
         else:
             st.warning("Thiếu feature_importance.png. Hãy chạy: python train_product_classifier.py")
 
-    section_header("📄 Classification Report")
+    section_header(
+        "📄 Classification Report",
+        "Bảng precision, recall, F1-score và số mẫu test theo từng nhãn."
+    )
     if report_df.empty:
         st.warning("Chưa có classification_report.csv. Hãy chạy: python train_product_classifier.py")
     else:
