@@ -94,7 +94,7 @@ HOT_BOOK_CHECKS = ["đắc nhân tâm", "nhà giả kim", "atomic habits"]
 
 # ==================== UTILITY FUNCTIONS ====================
 def normalize_id(value):
-    """Return a stable string id without pandas/numpy float suffixes."""
+    """Chuẩn hóa mã ID."""
     if value is None:
         return ""
     try:
@@ -113,15 +113,7 @@ def normalize_id(value):
 
 
 def parse_sold_count(value):
-    """
-    Parse Tiki sold count variants into an integer.
-
-    Supported examples:
-    - None -> 0
-    - 123 / 123.0 -> 123
-    - "Đã bán 2.1k", "2k", "2,5k", "300" -> 2100, 2000, 2500, 300
-    - {"text": "...", "value": ...} -> prefer value, otherwise parse text
-    """
+    """Đổi số đã bán về số nguyên."""
     if value is None:
         return 0
 
@@ -164,7 +156,7 @@ def parse_sold_count(value):
 
 
 def parse_number(value, default=0):
-    """Parse a numeric API/CSV value without raising on blanks."""
+    """Đổi giá trị về số."""
     if value is None:
         return default
     try:
@@ -189,7 +181,7 @@ def parse_number(value, default=0):
 
 
 def extract_sold_count(product):
-    """Extract sold count by requested priority, with common Tiki fallbacks."""
+    """Lấy số đã bán."""
     first_zero = 0
 
     for key in ("quantity_sold", "all_time_quantity_sold", "sold_count", "order_count"):
@@ -225,7 +217,7 @@ def extract_sold_count(product):
 
 
 def make_product_url(product, product_id):
-    """Build a stable public product URL."""
+    """Tạo link sản phẩm."""
     url_path = product.get("url_path") or product.get("url_key")
     if url_path:
         url_path = str(url_path).strip()
@@ -236,7 +228,7 @@ def make_product_url(product, product_id):
 
 
 def load_crawl_state():
-    """Load per-keyword crawl state, migrating the old global format if needed."""
+    """Đọc trạng thái crawl."""
     if not os.path.exists(STATE_PATH):
         return {}
 
@@ -268,13 +260,14 @@ def load_crawl_state():
 
 
 def save_crawl_state(state):
-    """Save crawl progress as {keyword: {last_crawled_page: n}}."""
+    """Lưu trạng thái crawl."""
     os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
     with open(STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
 def get_last_crawled_page(state, keyword):
+    """Lấy trang đã crawl cuối."""
     value = state.get(keyword, {})
     if isinstance(value, dict):
         return int(parse_number(value.get("last_crawled_page", 0), 0))
@@ -282,11 +275,12 @@ def get_last_crawled_page(state, keyword):
 
 
 def set_last_crawled_page(state, keyword, last_page):
+    """Cập nhật trang đã crawl."""
     state[keyword] = {"last_crawled_page": int(last_page)}
 
 
 def make_request(url, params=None, timeout=15):
-    """Send a public HTTP GET request with basic retry-safe error handling."""
+    """Gọi API Tiki."""
     try:
         response = requests.get(url, headers=HEADERS, params=params, timeout=timeout)
         response.raise_for_status()
@@ -303,7 +297,7 @@ def make_request(url, params=None, timeout=15):
 
 
 def get_reviews(product_id, max_reviews=MAX_REVIEWS_PER_PRODUCT):
-    """Crawl up to max_reviews public reviews for one product."""
+    """Lấy review sản phẩm."""
     reviews = []
     if max_reviews <= 0:
         return reviews
@@ -347,7 +341,7 @@ def get_reviews(product_id, max_reviews=MAX_REVIEWS_PER_PRODUCT):
 
 
 def build_product_rows(product, keyword, max_reviews):
-    """Convert one search product into one or more review/product rows."""
+    """Tạo dòng dữ liệu sản phẩm."""
     product_id = normalize_id(product.get("id"))
     if not product_id:
         return []
@@ -398,7 +392,7 @@ def build_product_rows(product, keyword, max_reviews):
 
 
 def crawl_keyword(keyword, start_page, end_page, products_per_page, max_reviews):
-    """Crawl products for one keyword and return rows plus last successful page."""
+    """Crawl theo từ khóa."""
     all_rows = []
     empty_count = 0
     last_successful_page = start_page - 1
@@ -453,7 +447,7 @@ def crawl_keyword(keyword, start_page, end_page, products_per_page, max_reviews)
 
 
 def read_existing_data():
-    """Read the existing CSV if it exists, trying common encodings."""
+    """Đọc dữ liệu CSV cũ."""
     if not os.path.exists(DATA_PATH):
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
@@ -467,7 +461,7 @@ def read_existing_data():
 
 
 def ensure_schema(df):
-    """Normalize old/new dataframes to the crawler's current schema."""
+    """Chuẩn hóa cột dữ liệu."""
     df = df.copy()
 
     if "comment_content" not in df.columns and "comment_text" in df.columns:
@@ -522,7 +516,7 @@ def ensure_schema(df):
 
 
 def combine_and_deduplicate(old_df, new_df):
-    """Merge old and new rows, then deduplicate by the requested keys."""
+    """Gộp và xóa trùng."""
     old_df = ensure_schema(old_df)
     new_df = ensure_schema(new_df)
 
@@ -583,7 +577,7 @@ def combine_and_deduplicate(old_df, new_df):
 
 
 def backup_existing_data():
-    """Backup the current CSV before replacing it with the merged output."""
+    """Sao lưu CSV cũ."""
     if not os.path.exists(DATA_PATH):
         return
 
@@ -593,7 +587,7 @@ def backup_existing_data():
 
 
 def save_data(df):
-    """Save merged data."""
+    """Lưu dữ liệu mới."""
     os.makedirs(os.path.dirname(DATA_PATH) or ".", exist_ok=True)
     backup_existing_data()
     df.to_csv(DATA_PATH, index=False, encoding="utf-8-sig")
@@ -601,6 +595,7 @@ def save_data(df):
 
 
 def print_top_sold_products(df):
+    """In sách bán chạy."""
     product_view = (
         df.sort_values("sold_count", ascending=False)
         .drop_duplicates(subset=["product_id"], keep="first")
@@ -615,6 +610,7 @@ def print_top_sold_products(df):
 
 
 def print_top_keywords(df):
+    """In từ khóa hiệu quả."""
     keyword_counts = (
         df[df["search_keyword"].str.len() > 0]
         .drop_duplicates(subset=["search_keyword", "product_id"])
@@ -632,6 +628,7 @@ def print_top_keywords(df):
 
 
 def print_hot_book_checks(df):
+    """Kiểm tra sách nổi bật."""
     product_view = df.drop_duplicates(subset=["product_id"], keep="first").copy()
     product_view["_name_lower"] = product_view["product_name"].fillna("").astype(str).str.lower()
 
@@ -650,7 +647,7 @@ def print_hot_book_checks(df):
 
 
 def print_statistics(old_len, new_len, merged_df, new_products_added):
-    """Print crawl and merge statistics."""
+    """In thống kê crawl."""
     print("\n" + "=" * 72)
     print("CRAWL STATISTICS")
     print("=" * 72)
@@ -666,12 +663,14 @@ def print_statistics(old_len, new_len, merged_df, new_products_added):
 
 
 def parse_keyword_arg(value):
+    """Tách danh sách từ khóa."""
     if not value:
         return KEYWORDS
     return [keyword.strip() for keyword in value.split(",") if keyword.strip()]
 
 
 def main():
+    """Chạy chương trình crawl."""
     parser = argparse.ArgumentParser(description="Crawl books from Tiki public search API")
     parser.add_argument(
         "--pages-per-keyword",

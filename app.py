@@ -761,6 +761,7 @@ div[data-testid="stFormSubmitButton"] button:active,
 # DATA LOADING
 # ============================================================
 
+# Ghi chú: Lấy thời gian sửa file để cache biết khi nào cần tải lại dữ liệu.
 def file_mtime(path: Path) -> float:
     """Return file modified time so Streamlit cache refreshes when CSV/model changes."""
     try:
@@ -769,6 +770,7 @@ def file_mtime(path: Path) -> float:
         return 0.0
 
 
+# Ghi chú: Đọc dữ liệu sản phẩm đã gán nhãn từ file CSV.
 @st.cache_data(show_spinner=False)
 def load_products(_mtime: float) -> pd.DataFrame:
     """Load labeled products. _mtime forces cache invalidation when file changes."""
@@ -777,6 +779,7 @@ def load_products(_mtime: float) -> pd.DataFrame:
     return pd.read_csv(DATA_PATH)
 
 
+# Ghi chú: Đọc bảng so sánh hiệu năng giữa các mô hình.
 @st.cache_data(show_spinner=False)
 def load_model_comparison(_mtime: float) -> pd.DataFrame:
     if not MODEL_COMPARISON_PATH.exists():
@@ -784,6 +787,7 @@ def load_model_comparison(_mtime: float) -> pd.DataFrame:
     return pd.read_csv(MODEL_COMPARISON_PATH)
 
 
+# Ghi chú: Đọc báo cáo phân loại và chuẩn hóa cột nhãn nếu cần.
 @st.cache_data(show_spinner=False)
 def load_classification_report(_mtime: float) -> pd.DataFrame:
     if not CLASSIFICATION_REPORT_PATH.exists():
@@ -797,6 +801,7 @@ def load_classification_report(_mtime: float) -> pd.DataFrame:
     return df
 
 
+# Ghi chú: Đếm số dòng đánh giá và số sản phẩm có đánh giá trong file crawl.
 @st.cache_data(show_spinner=False)
 def load_review_stats(path_str: str, _mtime: float) -> tuple[int, int]:
     """Read raw crawl CSV stats without writing or mutating data."""
@@ -820,6 +825,7 @@ def load_review_stats(path_str: str, _mtime: float) -> tuple[int, int]:
 
 
 
+# Ghi chú: Bổ sung thuộc tính còn thiếu để model sklearn cũ chạy được trên môi trường mới.
 def patch_sklearn_tree_model(model):
     """Fix sklearn pickle compatibility for tree models on Streamlit Cloud.
 
@@ -827,6 +833,7 @@ def patch_sklearn_tree_model(model):
     versions, tree estimators may expect the attribute `monotonic_cst`.
     Old pickled DecisionTree estimators may not have it, causing prediction to fail.
     """
+    # Ghi chú: Sửa từng cây quyết định nếu thiếu thuộc tính tương thích.
     def patch_one(est):
         try:
             cls_name = est.__class__.__name__
@@ -867,6 +874,7 @@ def patch_sklearn_tree_model(model):
     return model
 
 
+# Ghi chú: Tải model dự đoán và bộ mã hóa nhãn từ thư mục models.
 @st.cache_resource(show_spinner=False)
 def load_model_and_encoder(_model_mtime: float, _encoder_mtime: float):
     """Load model/encoder. mtimes force refresh after retraining."""
@@ -913,12 +921,14 @@ COLUMN_NAME_MAP = {
 }
 
 
+# Ghi chú: Chuyển giá trị thành chuỗi HTML an toàn để tránh lỗi hiển thị.
 def safe_html(value) -> str:
     if pd.isna(value):
         return ""
     return html.escape(str(value))
 
 
+# Ghi chú: Định dạng số nguyên có dấu phẩy phân tách hàng nghìn.
 def format_number(value) -> str:
     try:
         return f"{int(float(value)):,}"
@@ -926,6 +936,7 @@ def format_number(value) -> str:
         return "0"
 
 
+# Ghi chú: Định dạng giá trị tiền tệ theo đơn vị đồng Việt Nam.
 def format_vnd(value) -> str:
     try:
         return f"{int(float(value)):,}đ"
@@ -933,6 +944,7 @@ def format_vnd(value) -> str:
         return "0đ"
 
 
+# Ghi chú: Định dạng số thập phân theo số chữ số mong muốn.
 def format_float(value, digits=2) -> str:
     try:
         return f"{float(value):.{digits}f}"
@@ -940,6 +952,7 @@ def format_float(value, digits=2) -> str:
         return "0.00"
 
 
+# Ghi chú: Lấy một chỉ số cụ thể trong bảng báo cáo đánh giá mô hình.
 def get_report_value(report_df, label_name, col_candidates, default=0):
     if report_df.empty or "label" not in report_df.columns:
         return default
@@ -956,6 +969,7 @@ def get_report_value(report_df, label_name, col_candidates, default=0):
     return default
 
 
+# Ghi chú: Hiển thị tiêu đề chính và mô tả ngắn cho từng trang.
 def page_header(title: str, subtitle: str) -> None:
     st.markdown(
         f"""
@@ -968,6 +982,7 @@ def page_header(title: str, subtitle: str) -> None:
     )
 
 
+# Ghi chú: Hiển thị tiêu đề cho từng khu vực nội dung trong dashboard.
 def section_header(title: str, subtitle: str = "") -> None:
     st.markdown(
         f"""
@@ -980,6 +995,7 @@ def section_header(title: str, subtitle: str = "") -> None:
     )
 
 
+# Ghi chú: Tạo thẻ chỉ số gồm biểu tượng, tiêu đề, giá trị và mô tả.
 def metric_card(icon: str, title: str, value: str, subtitle: str = "") -> None:
     st.markdown(
         f"""
@@ -996,6 +1012,7 @@ def metric_card(icon: str, title: str, value: str, subtitle: str = "") -> None:
     )
 
 
+# Ghi chú: Tạo thẻ thông tin nhỏ với màu nhấn ở viền trái.
 def mini_card(title: str, text: str, accent: str = "#2563EB") -> None:
     st.markdown(
         f"""
@@ -1008,6 +1025,7 @@ def mini_card(title: str, text: str, accent: str = "#2563EB") -> None:
     )
 
 
+# Ghi chú: Hiển thị một thẻ thống kê số lượng theo nhãn sản phẩm.
 def render_label_card(label: str, value: int) -> None:
     st.markdown(
         f"""
@@ -1023,6 +1041,7 @@ def render_label_card(label: str, value: int) -> None:
     )
 
 
+# Ghi chú: Chuẩn hóa đường dẫn sản phẩm thành URL đầy đủ khi có thể.
 def normalize_url(url: str) -> str:
     if not isinstance(url, str) or not url.strip():
         return ""
@@ -1034,6 +1053,7 @@ def normalize_url(url: str) -> str:
     return url
 
 
+# Ghi chú: Hiển thị DataFrame thành bảng HTML nhẹ, có định dạng cột dễ đọc.
 def render_light_table(df: pd.DataFrame, columns=None, max_rows: int = 30) -> None:
     if df is None or df.empty:
         st.info("Không có dữ liệu để hiển thị.")
@@ -1096,6 +1116,7 @@ def render_light_table(df: pd.DataFrame, columns=None, max_rows: int = 30) -> No
     st.markdown(table_html, unsafe_allow_html=True)
 
 
+# Ghi chú: Đếm số sản phẩm theo từng nhãn hiệu quả.
 def label_counts(df: pd.DataFrame) -> pd.Series:
     if df.empty or "product_label" not in df.columns:
         return pd.Series(dtype=int)
@@ -1112,6 +1133,7 @@ def label_counts(df: pd.DataFrame) -> pd.Series:
     return counts.reindex(order).fillna(0).astype(int)
 
 
+# Ghi chú: Tạo biểu đồ cột thể hiện số lượng sản phẩm theo nhãn.
 def make_bar_chart(counts: pd.Series):
     chart_df = counts.reset_index()
     chart_df.columns = ["Nhãn sản phẩm", "Số lượng"]
@@ -1159,6 +1181,7 @@ def make_bar_chart(counts: pd.Series):
 
     return fig
 
+# Ghi chú: Tạo biểu đồ donut thể hiện tỷ trọng sản phẩm theo nhãn.
 def make_donut_chart(counts: pd.Series):
     chart_df = counts.reset_index()
     chart_df.columns = ["Nhãn", "Số lượng"]
@@ -1183,6 +1206,7 @@ def make_donut_chart(counts: pd.Series):
     return fig
 
 
+# Ghi chú: Lấy thông tin mô hình tốt nhất dựa trên F1-score.
 def get_best_model_info(model_df: pd.DataFrame):
     if model_df.empty:
         return "Random Forest Classifier", 0.9815, 0.9823, 0.9817
@@ -1208,6 +1232,7 @@ def get_best_model_info(model_df: pd.DataFrame):
     return best_model, acc, pre, f1
 
 
+# Ghi chú: Chọn các cột quan trọng để hiển thị trong bảng sản phẩm.
 def prepare_display_df(df: pd.DataFrame) -> pd.DataFrame:
     keep_cols = [
         "product_name",
@@ -1223,6 +1248,7 @@ def prepare_display_df(df: pd.DataFrame) -> pd.DataFrame:
     return df[[c for c in keep_cols if c in df.columns]].copy()
 
 
+# Ghi chú: Hiển thị biểu đồ Plotly và tự xử lý khác biệt phiên bản Streamlit.
 def show_plotly(fig):
     try:
         st.plotly_chart(fig, width="stretch")
@@ -1230,6 +1256,7 @@ def show_plotly(fig):
         st.plotly_chart(fig, use_container_width=True)
 
 
+# Ghi chú: Hiển thị ảnh và tự xử lý khác biệt phiên bản Streamlit.
 def show_image(path):
     try:
         st.image(str(path), width="stretch")
@@ -1258,6 +1285,7 @@ MODEL_FEATURE_COLUMNS = [
 ]
 
 
+# Ghi chú: Trích mã sản phẩm Tiki từ link hoặc chuỗi người dùng nhập.
 def extract_product_id(url_or_text):
     text = str(url_or_text or "").strip()
     if not text:
@@ -1270,6 +1298,7 @@ def extract_product_id(url_or_text):
     return None
 
 
+# Ghi chú: Chuyển dữ liệu lượt bán từ nhiều định dạng về số nguyên.
 def parse_sold_count(value):
     if value is None:
         return 0
@@ -1312,6 +1341,7 @@ def parse_sold_count(value):
     return int(digits) if digits else 0
 
 
+# Ghi chú: Lấy lượt bán từ dữ liệu sản phẩm Tiki bằng nhiều tên trường có thể có.
 def extract_sold_count(product):
     for key in ("quantity_sold", "all_time_quantity_sold", "sold_count", "order_count"):
         value = product.get(key)
@@ -1331,6 +1361,7 @@ def extract_sold_count(product):
     return parse_sold_count(product.get("sold"))
 
 
+# Ghi chú: Gọi API Tiki để lấy thông tin chi tiết của một sản phẩm.
 def fetch_tiki_product(product_id):
     try:
         response = requests.get(
@@ -1352,6 +1383,7 @@ def fetch_tiki_product(product_id):
     return product if isinstance(product, dict) else None
 
 
+# Ghi chú: Gọi API Tiki để lấy danh sách đánh giá của một sản phẩm.
 def fetch_tiki_reviews(product_id, limit=20):
     params = {
         "product_id": product_id,
@@ -1378,6 +1410,7 @@ def fetch_tiki_reviews(product_id, limit=20):
     return reviews if isinstance(reviews, list) else []
 
 
+# Ghi chú: Chuyển giá trị về số thực, nếu lỗi thì dùng giá trị mặc định.
 def _to_float(value, default=0):
     try:
         if pd.isna(value):
@@ -1391,6 +1424,7 @@ def _to_float(value, default=0):
         return default
 
 
+# Ghi chú: Phân tích đánh giá để tính số bình luận, điểm trung bình và tỷ lệ cảm xúc.
 def analyze_reviews(reviews):
     if not reviews:
         return {
@@ -1437,6 +1471,7 @@ def analyze_reviews(reviews):
     }
 
 
+# Ghi chú: Tạo bộ đặc trưng đầu vào cho model từ thông tin sản phẩm và đánh giá.
 def build_features_from_product(product, reviews):
     price = _to_float(product.get("price") or product.get("list_price") or 0, 0)
     rating = _to_float(product.get("rating_average") or product.get("rating") or 0, 0)
@@ -1461,6 +1496,7 @@ def build_features_from_product(product, reviews):
     return pd.DataFrame([[feature_values[col] for col in MODEL_FEATURE_COLUMNS]], columns=MODEL_FEATURE_COLUMNS)
 
 
+# Ghi chú: Tạo URL sản phẩm Tiki đầy đủ từ dữ liệu API hoặc mã sản phẩm.
 def build_tiki_product_url(product, product_id):
     url_path = product.get("url_path")
     if url_path:
@@ -1965,6 +2001,7 @@ elif page == "💡 Gợi ý cải thiện":
             with c3:
                 metric_card("⚠️", "Tỷ lệ tiêu cực TB", format_float(avg_negative, 2), "Trung bình nhóm")
 
+            # Ghi chú: Tạo gợi ý cải thiện dựa trên rating, tỷ lệ tiêu cực và lượt bán.
             def make_suggestion(row):
                 rating_value = row.get("rating", 0)
                 negative_value = row.get("negative_ratio", 0)

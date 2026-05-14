@@ -144,14 +144,15 @@ def assign_labels(df):
     print("\n🏷️  Gán nhãn sản phẩm...")
     
     df = df.copy()
-    
+
+    """chuẩn hóa điểm (dùng min max scale để đưa chỉ số về khoảng 0 - 1)"""
     def minmax_scale(series):
         min_val = series.min()
         max_val = series.max()
         if max_val > min_val:
             return (series - min_val) / (max_val - min_val)
         return pd.Series(0.5, index=series.index)
-    
+
     df['sold_score'] = minmax_scale(df['sold_count'])
     df['revenue_score'] = minmax_scale(df['estimated_revenue'])
     df['rating_score'] = minmax_scale(df['rating'])
@@ -159,7 +160,10 @@ def assign_labels(df):
     df['positive_score'] = minmax_scale(df['positive_ratio'])
     df['negative_penalty'] = minmax_scale(df['negative_ratio'])
     df['price_score'] = minmax_scale(df['price'])
-    
+
+    "bán  tốt, doanh thu cao, rating tốt, nhiều review, tỷ lệ positive cao, "
+    "tỷ lệ negative thấp, giá hợp lý sẽ có điểm hiệu suất cao"
+
     df['performance_score'] = (
         0.25 * df['sold_score'] +
         0.25 * df['revenue_score'] +
@@ -171,11 +175,11 @@ def assign_labels(df):
     ).clip(0, 1)
     
     median_positive_ratio = df['positive_ratio'].median()
-    effective_positive_threshold = max(median_positive_ratio, 0.1)
-    best_threshold = df['performance_score'].quantile(0.90)
-    premium_threshold = df['performance_score'].quantile(0.75)
-    high_threshold = df['performance_score'].quantile(0.55)
-    needs_threshold = df['performance_score'].quantile(0.20)
+    effective_positive_threshold = max(median_positive_ratio, 0.1) 
+    best_threshold = df['performance_score'].quantile(0.90) "top10%"
+    premium_threshold = df['performance_score'].quantile(0.75) "top25%"
+    high_threshold = df['performance_score'].quantile(0.55)  "trên mức 55% "
+    needs_threshold = df['performance_score'].quantile(0.20) "bottom 20% điểm thấp nhất"
     
     print(f"   Thống kê score:")
     print(f"   - median_positive_ratio: {median_positive_ratio:.2f}")
@@ -185,7 +189,8 @@ def assign_labels(df):
     print(f"   - high_threshold: {high_threshold:.2f}")
     print(f"   - needs_threshold: {needs_threshold:.2f}")
     
-    labels = []
+    labels = [] #vòng lặp xét từng sản phẩm 
+    
     
     for idx, row in df.iterrows():
         label = None
